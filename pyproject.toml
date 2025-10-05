@@ -37,6 +37,7 @@ packages = [{include = "youtube_uploader", from = "src"}]
 pytest = "^8.4.2"
 pytest-mock = "^3.15.1"
 ruff = "^0.13.3"
+mypy = "^1.18.2"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
