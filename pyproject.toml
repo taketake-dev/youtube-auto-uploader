@@ -1,14 +1,33 @@
 [project]
 name = "youtube-uploader"
-version = "0.1.0"
-description = "A personal automation package for YouTube uploads."
+version = "1.0.0"
+description = "YouTube アップロード用の個人用自動化パッケージ"
 authors = [
     {name = "taketake-dev",email = "177946216+taketake-dev@users.noreply.github.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
+license = "MIT"
+keywords = ["youtube", "automation", "api", "video", "uploader"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Natural Language :: Japanese",
 ]
+dependencies = [
+    "pydantic (>=2.11.10,<3.0.0)",
+    "google-api-python-client (>=2.184.0,<3.0.0)",
+    "google-auth (>=2.41.1,<3.0.0)",
+    "google-auth-oauthlib (>=1.2.2,<2.0.0)",
+]
+
+[project.scripts]
+youtube-auth-init = "youtube_uploader.cli:init_auth_setup"
 
 [tool.poetry]
 packages = [{include = "youtube_uploader", from = "src"}]
@@ -17,7 +36,36 @@ packages = [{include = "youtube_uploader", from = "src"}]
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"
 pytest-mock = "^3.15.1"
+ruff = "^0.13.3"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+exclude = [".git", ".venv", "__pycache__"]
+
+[tool.ruff.format]
+quote-style = "double" # Blackと同様にダブルクォートを強制
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle (エラー)
+  "W",   # pycodestyle (警告)
+  "F",   # Pyflakes (未使用のインポートなど)
+  "I",   # isort (インポートの整理)
+  "UP",  # pyupgrade (新しいPython構文への自動更新)
+  "B",   # flake8-bugbear (隠れたバグや、非効率なコードを発見)
+  "C4",  # flake8-comprehensions (非効率な内包表記を修正)
+  "SIM", # flake8-simplify (よりシンプルな書き方に修正)
+]
+
+[tool.mypy]
+[[tool.mypy.overrides]]
+module = [
+  "google_auth_oauthlib.*",
+  "googleapiclient.*",
+]
+ignore_missing_imports = true
