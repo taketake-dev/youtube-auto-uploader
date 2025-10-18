@@ -1,5 +1,7 @@
 # youtube-uploader
 
+現行バージョン: **v2.0.0**
+
 **現在 PyPI には上げていません**
 
 [![Author](https://img.shields.io/badge/Author-taketake--dev-blue.svg)](https://github.com/taketake-dev)
