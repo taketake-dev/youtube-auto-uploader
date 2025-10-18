@@ -2,42 +2,35 @@
 パッケージの認証ファイルパスや環境変数に関するユーティリティ関数を定義するモジュール。
 """
 
-import os
 from pathlib import Path
 
 
-def get_default_auth_paths(base_dir: Path | None = None) -> tuple[Path, Path]:
+def get_account_auth_paths(account_name: str) -> tuple[Path, Path]:
     """
-    クライアントシークレットとトークンファイルのパスを決定します。
+    指定されたアカウント名に基づき、認証情報のパスを決定・作成する。
 
-    Args:
-        base_dir (Path | None): 認証情報を格納するベースディレクトリ。
-            Noneの場合、標準の '~/.config/youtube_uploader' を使用します。
+    パス構造: ~/.secrets/youtube-uploader/<account_name>/client_secrets.json
 
-    Returns:
-        tuple[Path, Path]: (client_secrets_path, token_path)
-
-    Note:
-        環境変数 'YOUTUBE_SECRETS_PATH' が設定されている場合、そのパスが優先されます。
+    Raises:
+        FileNotFoundError: client_secrets.json が存在しない場合。
     """
+    # ベースディレクトリの決定 (.secretsを使用)
+    # ディレクトリ名はハイフン区切りに変更: youtube-uploader
+    base_dir = Path.home() / ".secrets" / "youtube-uploader" / account_name
 
-    # 1. 環境変数による上書きチェック
-    # 環境変数が設定されていれば、それをベースディレクトリとして優先する
-    env_path = os.environ.get("YOUTUBE_SECRETS_PATH")
-    if env_path:
-        config_dir = Path(env_path)
-    # 2. デフォルトパスの決定
-    elif base_dir is None:
-        # OSに依存しないホームディレクトリの取得 (~/.config/youtube_uploader/)
-        config_dir = Path.home() / ".config" / "youtube_uploader"
-    else:
-        config_dir = base_dir
+    # ディレクトリの作成
+    base_dir.mkdir(parents=True, exist_ok=True)
 
-    # ディレクトリが存在しない場合は作成 (初回実行時の利便性向上)
-    config_dir.mkdir(parents=True, exist_ok=True)
+    # ファイルパスの決定
+    client_secrets_path = base_dir / "client_secrets.json"
+    token_path = base_dir / "token.json"
 
-    # 最終的なファイルパスを決定
-    client_secrets_path = config_dir / "client_secrets.json"
-    token_path = config_dir / "token.json"
+    # client_secrets.jsonの存在チェック
+    if not client_secrets_path.exists():
+        # 利用者がファイルを配置すべき場所を伝える
+        raise FileNotFoundError(
+            f"アカウント '{account_name}' の認証ファイルが見つかりません。 "
+            f"'{client_secrets_path}' に配置してください。"
+        )
 
     return client_secrets_path, token_path
