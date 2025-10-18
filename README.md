@@ -23,6 +23,14 @@ YouTube API を使った認証、設定、および動画の予約投稿を含�
   - 子供向けコンテンツかどうか
   - 動画の公開設定
   - 予約投稿日時
+- 異なる YouTube アカウントへ動画を投稿
+
+---
+
+## 動作環境
+
+- Linux
+- Windows WSL
 
 ---
 
@@ -50,19 +58,12 @@ poetry add youtube-uploader
 
 本パッケージは OAuth 2.0 を使用します。初回接続時にブラウザ経由で認証が必要です。
 
-### ステップ 1: 認証ディレクトリの初期化 (推奨)
+### ステップ 1: 認証ディレクトリの初期化
 
-最初のステップとして、以下のコマンドを実行し、認証ファイルを配置するディレクトリを自動で作成してください。（任意）
-
-```bash
-# 認証ディレクトリを自動作成
-poetry run youtube-auth-init
-```
-
-このコマンドを実行すると、以下のパスが作成されます。
+まず、user 配下の以下にディレクトリを作ってください。
 
 ```bash
-~/.config/youtube_uploader/
+~/.secrets/youtube-uploader/<独自のチャンネル名>/
 ```
 
 ### ステップ 2: API キーの取得と配置
@@ -71,14 +72,11 @@ poetry run youtube-auth-init
 
 2. OAuth 2.0 クライアント ID（デスクトップ アプリケーション）を作成し、`client_secrets.json` ファイルをダウンロードします。
 
-3. ダウンロードしたファイルを、以下のデフォルトパスに配置します。
+3. ダウンロードしたファイルを、以下のパスに配置します。
 
 ```text
-~/.config/youtube_uploader/client_secrets.json
+~/.secrets/youtube-uploader/<独自のチャンネル名>/client_secrets.json
 ```
-
-（このパスはヘルパー関数 `get_default_auth_paths()`のデフォルト設定に依存します。）
-（もしファイル名や場所を変えたい場合は、`connect` メソッドに直接パスを渡してください。）
 
 ### ステップ 3: 初回認証の実行
 
@@ -93,56 +91,90 @@ poetry run youtube-auth-init
 認証情報のパスと、アップロード設定（YoutubeConfig）を指定するだけで利用可能です。
 
 ```py
+"""
+==================================================
+  YouTube Uploader パッケージのサンプル実行スクリプト
+==================================================
+
+このスクリプトは、パッケージの主要な機能（認証、アップロード）をデモンストレーションします。
+
+【実行に必要な準備】
+client_secrets.json: Google API Consoleからダウンロードした認証情報ファイルを、
+~/.secrets/youtube-uploader/[アカウント名]/ に配置してください。
+"""
+
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from youtube_uploader.youtube import YoutubeUploader, YoutubeConfig, get_default_auth_paths
-from youtube_uploader.youtube import AuthError, UploadError # カスタム例外
 
-# ログ設定（INFOレベルで詳細を表示）
+from youtube_uploader.exceptions import AuthError, UploadError  # カスタム例外
+from youtube_uploader.youtube import YoutubeConfig, YoutubeUploader
+
+# ログ設定
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
-# 認証情報ファイルのパスを自動取得
-CLIENT_SECRETS_FILE, TOKEN_FILE = get_default_auth_paths()
-VIDEO_FILE = Path("./videos/my_project_final.mp4") # 実際の動画パスに置き換えてください
+# 認証情報ファイルのパス
+TARGET_ACCOUNT_NAME = (
+    "my-channel-name"  # 使用するアカウント名(ファイル名)と一致させてください
+)
+VIDEO_FILE = Path("./videos/my-project-final.mp4")  # 実際の動画パスに置き換えてください
+
+# -----------------------------------------------------------
+# 1. Uploaderのインスタンス化と認証
+# -----------------------------------------------------------
 
 try:
-    # 1. Uploaderのインスタンス化と接続
-    uploader = YoutubeUploader()
-    uploader.connect(CLIENT_SECRETS_FILE, TOKEN_FILE)
+    # インスタンス生成
+    # Uploaderの生成時に、アカウント名のパスを解決し、認証が実行されます
+    uploader = YoutubeUploader(TARGET_ACCOUNT_NAME)
 
-    # 2. 予約投稿の設定 (JSTで翌日10:00に予約)
-    jst = timezone(timedelta(hours=9))
-    schedule_time = datetime.now(jst) + timedelta(days=1)
+except FileNotFoundError:
+    logger.critical(
+        "❌ 認証ファイルが見つかりません。パスを確認し、ファイルを配置してください: {e}"
+    )
+except AuthError:
+    logger.critical(
+        "❌ 認証エラーが発生しました。"
+        "ブラウザ認証の失敗またはトークン破損の可能性があります: {e}"
+    )
+except Exception as e:
+    logger.critical(f"致命的なシステムエラーが発生しました: {e}")
 
+# -----------------------------------------------------------
+# 2. 設定オブジェクトの作成とアップロード実行
+# -----------------------------------------------------------
+
+# 予約投稿の設定 (JSTで翌日10:00に予約)
+jst = timezone(timedelta(hours=9))
+schedule_time = datetime.now(jst) + timedelta(days=1)
+
+try:
+    # アップロード設定オブジェクトの作成
     config = YoutubeConfig(
         video_path=VIDEO_FILE,
         title="【自動投稿】マイ作品の試作 - 予約デモ",
         description="Pythonスクリプトによる自動アップロード。",
         tags=["Python", "自動化", "ボカロ", "テスト"],
-        category_id="10", # ミュージック
-        privacy_status="private",
-        publish_at=schedule_time, # datetimeオブジェクトを渡す
+        category_id="10",  # カテゴリIDはYouTubeの公式ドキュメントを参照してください
+        selfDeclaredMadeForKids=False,  # 設定しない場合はFalseです
+        privacy_status="private",  # public, private, unlisted があります
+                                   # 予約投稿の場合は private にしてください
+        publish_at=schedule_time,  # 設定しない場合は即日公開
     )
 
-    # 3. アップロード実行
+    # アップロード実行
     response = uploader.upload_video(config)
 
     if response:
-        print(f"\n[SUCCESS] 動画ID {response.get('id')} の予約投稿を完了しました。")
+        logger.info(f"動画ID {response.get('id')} の予約投稿を完了しました。")
 
 except FileNotFoundError as e:
-    # クライアントシークレットファイルがない場合の処理
-    print(f"\n[FATAL ERROR] クライアントシークレットファイルが見つかりません。パスを確認してください: {e}")
-except AuthError as e:
-    # 認証失敗時の処理
-    print(f"\n[FATAL ERROR] 認証エラー: {e}")
+    logger.critical(f"❌ 動画ファイルが見つかりません: {e}")
 except UploadError as e:
-    # アップロード中のAPIエラー処理
-    print(f"\n[FATAL ERROR] アップロードエラー: {e}")
+    logger.critical(f"❌ アップロード中にAPIエラーが発生しました: {e}")
 except Exception as e:
-    # その他の予期せぬエラー
-    print(f"\n[FATAL ERROR] 予期せぬエラーが発生しました: {e}")
+    logger.critical(f"予期せぬシステムエラーが発生しました: {e}")
 ```
 
 詳細は`examples/run_upload.py`を参照してください。

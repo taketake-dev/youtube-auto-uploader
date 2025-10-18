@@ -13,7 +13,9 @@ from googleapiclient.http import MediaFileUpload
 from pydantic import BaseModel, Field, field_validator
 
 from .exceptions import AuthError, UploadError
+from .utils import get_account_auth_paths
 
+# YouTube Data APIのスコープ定義
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 logger = logging.getLogger(__name__)
@@ -67,22 +69,36 @@ class YoutubeConfig(BaseModel):
 class YoutubeUploader:
     """YouTube APIを使った認証と動画アップロード処理を担当するコアクラス"""
 
-    def __init__(self):
-        self._client_secrets_json_path = None
-        self._token_json_path = None
-        self._youtube_service = None
-
-    def connect(self, client_secrets_json_path: Path, token_json_path: Path):
-        """YouTube APIへの認証を行う
-
+    def __init__(self, account_name: str):
+        """指定されたアカウント名に基づきYouTube APIへの認証を行う。
         Args:
-            client_secrets_json_path (Path): クライアントシークレットJSONファイルのパス
-            token_json_path (Path): トークンJSONファイルのパス
-
-        認証に失敗した場合、トークンファイルの破損が考えられる。
-        詳細はREADMEを参照のこと。
+            account_name (str): 利用するYouTubeアカウントの名前
+        Raises:
+            AuthError: 認証に失敗した場合。
         """
+        # 認証状態とファイルパスを格納するフィールド
+        self._youtube_service: Any = None
+        self._account_name = account_name
 
+        # インスタンス生成時に認証を完了させる
+        self._authenticate_service(account_name)
+
+    def _authenticate_service(self, account_name: str):
+        """アカウント名に基づき認証情報をロードし、APIサービスをインスタンスに設定する。"""
+        # ユーティリティ関数を使ってアカウント名に基づいたパスを取得
+        try:
+            client_secrets_json_path, token_json_path = get_account_auth_paths(
+                account_name
+            )
+        except FileNotFoundError as e:
+            # get_account_auth_pathsで発生したエラーをそのまま伝達
+            raise e
+        except Exception as e:
+            raise AuthError(
+                f"アカウント '{account_name}' の認証パス取得中に予期せぬエラー: {e}"
+            ) from e
+
+        # 認証ロジックの実行
         # 内部変数にパスを設定
         self._client_secrets_json_path = client_secrets_json_path
         self._token_json_path = token_json_path
@@ -148,24 +164,19 @@ class YoutubeUploader:
             # APIサービス構築失敗時にAuthErrorを発生
             raise AuthError(f"YouTube APIサービスへの接続に失敗しました: {e}") from e
 
-        logger.info("YouTube APIへの接続が完了しました。")
+        logger.info(
+            f"YouTube APIへの接続が、アカウント '{account_name}' で完了しました。"
+        )
 
-    def upload_video(self, config: YoutubeConfig) -> dict | None:
+    def upload_video(self, config: YoutubeConfig) -> dict:
         """動画をYouTubeにアップロードする
 
         Args:
             config (YoutubeConfig): アップロード設定情報
 
         Returns:
-            dict | None: アップロードが成功した場合はAPIのレスポンス辞書、
-                失敗した場合はNone
+            dict : APIのレスポンス辞書
         """
-        # 接続状態のチェック
-        if not self._youtube_service:
-            logger.error(
-                "YouTube APIに接続されていません。先にconnect()を実行してください。"
-            )
-            return None
 
         # ファイル存在チェック
         # （Pydanticバリデーションを通過しても、実行時にファイルが消える可能性を考慮）

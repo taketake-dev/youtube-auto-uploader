@@ -1,3 +1,5 @@
+# 機能停止中
+
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
