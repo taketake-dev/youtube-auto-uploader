@@ -1,53 +1,57 @@
-name: CI/CD (Test & Lint)
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+# This file has been adapted from the template.
+
+name: CI/CD (Quality & Test)
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: ["main", "master"]
   pull_request:
-    branches:
-      - main
-      - master
+    branches: ["main", "master"]
 
 jobs:
   test_and_lint:
     runs-on: ubuntu-latest
-
-    env:
-      PYTHON_VERSION: "3.12"
+    strategy:
+      # プロジェクトが要求するPython 3.12のみでテストを実行
+      matrix:
+        python-version: ["3.12"]
 
     steps:
-      # リポジトリのチェックアウト
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5 # バージョンを v5 に固定
 
-      # Python環境のセットアップ
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ matrix.python-version }}
+          cache: "poetry" # Poetryの依存関係をキャッシュ
 
-      # PoetryのインストールとPATH設定を確実に実行します。
       - name: Install Poetry
-        uses: snok/install-poetry@v1.3.1
+        uses: snok/install-poetry@v1 # 最も安定したPoetryインストーラーを使用
 
       # 依存関係のインストール (devグループを含む)
-      - name: Install dependencies
+      - name: Install dependencies (with dev)
+        # 依存関係を解決し、インストール（プロジェクト自体はインストールしない）
         run: poetry install --with dev --no-root
 
-      # パッケージを編集可能モードでインストール
-      - name: Install package root
-        # --only-root は pyproject.toml で定義されたプロジェクト自体をインストール
+      # プロジェクト本体を仮想環境にインストール
+      - name: Install project root
         run: poetry install --only-root
 
-      # --- 静的解析と品質チェック ---
+      # --- 品質チェック (Flake8を削除し、RuffとMypyに置き換え) ---
 
+      # 1. スタイルと論理エラーのチェック (Ruff)
       - name: Run Ruff Linter Check
         run: poetry run ruff check src tests
 
+      # 2. 型チェック (Mypy)
       - name: Run Mypy Type Check
+        # pyproject.tomlに設定したignore rules (googleapiclient)が適用されます
         run: poetry run mypy src
 
+      # 3. ユニットテストの実行 (Pytest)
       - name: Run Pytest
         run: poetry run pytest
