@@ -23,15 +23,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5 # バージョンを v5 に固定
 
+      # ★ 修正箇所1: Poetryのインストールを、Pythonのセットアップの直前に移動します
+      - name: Install Poetry
+        uses: snok/install-poetry@v1 # 最も安定したPoetryインストーラーを使用
+
       - name: Set up Python ${{ matrix.python-version }}
+        # 修正箇所2: cache機能を動作させるため、PythonセットアップをPoetryインストール後に移動
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: "poetry" # Poetryの依存関係をキャッシュ
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1 # 最も安定したPoetryインストーラーを使用
-
+          
       # 依存関係のインストール (devグループを含む)
       - name: Install dependencies (with dev)
         # 依存関係を解決し、インストール（プロジェクト自体はインストールしない）
