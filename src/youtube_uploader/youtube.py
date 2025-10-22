@@ -65,6 +65,11 @@ class YoutubeConfig(BaseModel):
                 "予約投稿日時(publish_at)が指定されている場合、"
                 "公開設定(privacy_status)は 'private' である必要があります。"
             )
+        if v is not None and v.tzinfo is None:
+            raise ValueError(
+                "予約投稿日時(publish_at)にはタイムゾーン情報(tzinfo)が必要です。"
+                "例: datetime.fromisoformat('2025-10-20 02:30:00+09:00')"
+            )
         return v
 
 
