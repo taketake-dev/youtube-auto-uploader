@@ -1,6 +1,6 @@
 [project]
 name = "youtube-uploader"
-version = "4.0.0"
+version = "5.0.0"
 description = "YouTube アップロード用の個人用自動化パッケージ"
 authors = [
     {name = "taketake-dev",email = "177946216+taketake-dev@users.noreply.github.com"}
@@ -31,6 +31,7 @@ youtube-auth-init = "youtube_uploader.cli:init_auth_setup"
 
 [tool.poetry]
 packages = [{include = "youtube_uploader", from = "src"}]
+include = ["src/youtube_uploader/py.typed"]
 
 
 [tool.poetry.group.dev.dependencies]
