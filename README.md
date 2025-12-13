@@ -1,6 +1,6 @@
 # youtube-uploader
 
-現行バージョン: **v3.0.0**
+現行バージョン: **v5.0.0**
 
 **現在 PyPI には上げていません**
 
@@ -33,7 +33,9 @@ YouTube API を使った認証、設定、および動画の予約投稿を含�
 ## 動作環境
 
 - Linux
-- Windows WSL
+- WSL
+- Windows
+- Mac
 
 ---
 
@@ -61,31 +63,25 @@ poetry add youtube-uploader
 
 本パッケージは OAuth 2.0 を使用します。初回接続時にブラウザ経由で認証が必要です。
 
-### ステップ 1: 認証ディレクトリの初期化
+### ステップ 1: API キーの取得と配置
 
-まず、user 配下の以下にディレクトリを作ってください。
+1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作成。
 
-```bash
-~/.secrets/youtube-uploader/<独自のチャンネル名>/
-```
+2. ライブラリから **YouTube Data API v3** を有効にします。
 
-### ステップ 2: API キーの取得と配置
+3. アプリケーションの情報を入力
 
-1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作成し、**YouTube Data API v3** を有効にします。
+4. OAuth 2.0 クライアント ID（**デスクトップ アプリケーション**）を作成し、`client_secrets.json` ファイルをダウンロードします。
 
-2. OAuth 2.0 クライアント ID（**デスクトップ アプリケーション**）を作成し、`client_secrets.json` ファイルをダウンロードします。
+5. テストユーザーに使用するアカウントのメールアドレスを入れてください。
 
-3. ダウンロードしたファイルを、以下のパスに配置します。
+6. ファイル名を `client_secret.json` に変更してください。
 
-```text
-~/.secrets/youtube-uploader/<独自のチャンネル名>/client_secrets.json
-```
-
-### ステップ 3: 初回認証の実行
+### ステップ 2: 初回認証の実行
 
 コード内で`connect`メソッドを初めて実行すると、自動的にブラウザが開いて Google アカウントの認証を求められます。
 
-認証が完了すると、`token.json`が`client_secrets.json`と同じ場所に安全に保存され、次回以降の API 接続は自動化されます。
+認証が完了すると、`token.json`が`client_secret.json`と同じ場所に安全に保存され、次回以降の API 接続は自動化されます。
 
 ---
 
@@ -106,69 +102,7 @@ client_secrets.json:
     データがなくてもかまいません。
 """
 
-import logging
-from datetime import datetime
-from pathlib import Path
-
-from youtube_uploader.exceptions import AuthError, UploadError  # カスタム例外
-from youtube_uploader.youtube import YoutubeConfig, YoutubeUploader
-
-# ログ設定
-logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
-logger = logging.getLogger(__name__)
-
-# 置き換えてください
-TARGET_ACCOUNT_NAME = Path("~/.secrets/youtube-uploader/test-channel")
-VIDEO_FILE = Path("./videos/test-video.mp4")
-SCHEDULE_TIME = datetime.fromisoformat("2025-10-20 02:30:00+09:00")
-
-# -----------------------------------------------------------
-# 1. Uploaderのインスタンス化と認証
-# -----------------------------------------------------------
-
-try:
-    # インスタンス生成
-    # Uploaderの生成時に、アカウント名のパスを解決し、認証が実行されます
-    uploader = YoutubeUploader(TARGET_ACCOUNT_NAME)
-
-except FileNotFoundError as e:
-    logger.critical(
-        f"❌ 認証ファイルが見つかりません。"
-        f"パスを確認し、ファイルを配置してください: {e}"
-    )
-except AuthError as e:
-    logger.critical(
-        f"❌ 認証エラーが発生しました。"
-        f"ブラウザ認証の失敗またはトークン破損の可能性があります: {e}"
-    )
-
-# -----------------------------------------------------------
-# 2. 設定オブジェクトの作成とアップロード実行
-# -----------------------------------------------------------
-
-try:
-    # アップロード設定オブジェクトの作成
-    config = YoutubeConfig(
-        video_path=VIDEO_FILE,
-        title="【自動投稿】マイ作品の試作 - 予約デモ",
-        description="Pythonスクリプトによる自動アップロード。",
-        tags=["Python", "自動化", "ボカロ", "テスト"],
-        category_id="24",          # カテゴリIDはYouTubeの公式ドキュメントを参照してください
-        privacy_status="private",  # public, private, unlisted があります
-                                   # 予約投稿の場合は private にしてください
-        publish_at=SCHEDULE_TIME,  # 設定しない場合は即日公開
-    )
-
-    # アップロード実行
-    response = uploader.upload_video(config)
-
-    if response:
-        logger.info(f"動画ID {response.get('id')} の予約投稿を完了しました。")
-
-except FileNotFoundError as e:
-    logger.critical(f"❌ 動画ファイルが見つかりません: {e}")
-except UploadError as e:
-    logger.critical(f"❌ アップロード中にAPIエラーが発生しました: {e}")
+# examples/run_upload.py に移動しました。
 ```
 
 実行したい場合`examples/run_upload.py`を使用してください。
@@ -181,14 +115,8 @@ except UploadError as e:
 プロジェクトルートで Poetry を使用してください。
 
 ```bash
-poetry install --with dev
-```
-
-ユニットテストの実行
-外部 API との実際の通信をモック化してテストします。
-
-```bash
-poetry run pytest tests/
+# GitHubから直接インストール
+poetry add git+https://github.com/taketake-dev/youtube-uploader.git
 ```
 
 ---

@@ -1,20 +1,39 @@
-"""Youtube Uploader"""
+"""YouTube Uploader
 
+Note:
+  2018.02.16 時点で有効なカテゴリの一覧
+    1 映画・アニメーション
+    2 自動車・乗り物
+    10 音楽
+    15 ペット・動物
+    17 スポーツ
+    19 旅行・イベント
+    20 ゲーム
+    22 人物・ブログ
+    23 コメディ
+    24 エンターテイメント
+    25 ニュース・政治
+    26 ハウツー・スタイル
+    27 教育
+    28 サイエンス・テクノロジー
+"""
+
+import io
 import logging
-from datetime import datetime
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-from pydantic import BaseModel, Field, field_validator
-
-from youtube_uploader.utils import resolve_auth_paths
+from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore
+from googleapiclient.discovery import build  # type: ignore
+from googleapiclient.errors import HttpError  # type: ignore
+from googleapiclient.http import MediaIoBaseUpload  # type: ignore
 
 from .exceptions import AuthError, UploadError
+from .models import YoutubeConfig
+from .utils import resolve_auth_paths
 
 # YouTube Data APIのスコープ定義
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
@@ -24,57 +43,16 @@ logger.addHandler(logging.NullHandler())
 logger.setLevel(logging.INFO)
 
 
-class YoutubeConfig(BaseModel):
-    """YouTubeへの動画アップロードに必要な設定情報
-
-    Args:
-        video_path (Path): アップロードする動画ファイルのパス
-        title (str): 動画のタイトル
-        description (str, optional): 動画の説明文
-        tags (list[str], optional): 動画のタグリスト
-        category_id (str, optional): 動画のカテゴリID
-        selfDeclaredMadeForKids (bool, optional): 子供向けコンテンツかどうかの自己申告
-            (デフォルトはFalse)
-        privacy_status (str, optional): 動画の公開設定
-        publish_at (datetime | None, optional): 予約投稿日時 (Noneの場合は即時公開)
-            例：2025-10-20 02:30:00+09:00
-    """
-
-    video_path: Path = Field(..., description="アップロードする動画ファイルのパス")
-    title: str = Field(..., description="動画のタイトル")
-    description: str = Field(default="", description="動画の説明文")
-    tags: list[str] = Field(default_factory=list, description="動画のタグリスト")
-    category_id: str = Field(default="24", description="動画のカテゴリID")
-    selfDeclaredMadeForKids: bool = Field(
-        default=False,
-        description="子供向けコンテンツかどうかの自己申告 (デフォルトはFalse)",
-    )
-    privacy_status: Literal["public", "private", "unlisted"] = Field(
-        default="private", description="動画の公開設定 (public, private, unlisted)"
-    )
-    publish_at: datetime | None = Field(
-        default=None, description="予約投稿日時 (Noneの場合は即時公開)"
-    )
-
-    # 予約投稿がprivate以外の場合に警告/エラーを出す
-    @field_validator("publish_at")
-    @classmethod
-    def check_privacy_for_scheduled_post(cls, v, info):
-        if v is not None and info.data.get("privacy_status") != "private":
-            raise ValueError(
-                "予約投稿日時(publish_at)が指定されている場合、"
-                "公開設定(privacy_status)は 'private' である必要があります。"
-            )
-        if v is not None and v.tzinfo is None:
-            raise ValueError(
-                "予約投稿日時(publish_at)にはタイムゾーン情報(tzinfo)が必要です。"
-                "例: datetime.fromisoformat('2025-10-20 02:30:00+09:00')"
-            )
-        return v
-
-
 class YoutubeUploader:
-    """YouTube APIを使った認証と動画アップロード処理を担当するコアクラス"""
+    """YouTube APIを使った認証と動画アップロード処理を担当するコアクラス
+
+    このクラスは、API認証情報の管理、トークンのリフレッシュ、および
+    動画/サムネイルのアップロード処理を抽象化する
+
+    Methods:
+        - connect(): YouTube APIへの認証と接続を確立します
+        - upload_video(config: YoutubeConfig): 指定された設定で動画をアップロードします
+    """
 
     def __init__(self, auth_path: Path):
         """指定されたディレクトリに基づきYouTube APIへの認証を行う。
@@ -82,11 +60,9 @@ class YoutubeUploader:
         Args:
             auth_path (Path): 利用する client_secret.jsonが入っているディレクトリのパス
 
-        Raises:
-            AuthError: 認証に失敗した場合。
-
         Examples:
-            uploader = YoutubeUploader(~/secrets/my_account)
+            uploader = YoutubeUploader(Path("~/secrets/my_account"))
+            uploader.connect()
 
         Note:
             インスタンス引数はルートでもユーザディレクトリからでも、
@@ -96,16 +72,28 @@ class YoutubeUploader:
         self._youtube_service: Any = None
         self._auth_path = auth_path
 
-        # インスタンス生成時に認証を完了させる
-        self._authenticate_service(auth_path)
+        # 内部で利用するパスのフィールドを初期化
+        self._client_secrets_json_path: Path | None = None
+        self._token_json_path: Path | None = None
 
-    def _authenticate_service(self, auth_path: Path):
-        """指定パスに基づき認証情報をロードし、APIサービスをインスタンスに設定する。"""
+    def connect(self) -> None:
+        """指定パスに基づき認証情報をロードし、APIサービスをインスタンスに設定する
+
+        Raises:
+            AuthError: 認証に失敗した場合
+        """
+        if self._youtube_service is not None:
+            logger.info("既にYouTube APIへの接続が完了しています。")
+            return
+
         try:
             # ユーティリティ関数でパスを解決し、ファイルが存在するかチェック
-            client_secrets_json_path, token_json_path = resolve_auth_paths(auth_path)
+            (client_secrets_json_path, token_json_path) = resolve_auth_paths(
+                self._auth_path
+            )
         except FileNotFoundError as e:
-            raise e  # client_secrets.json がない場合はそのままエラー
+            # client_secrets.json がない場合はそのままエラー
+            raise e
         except Exception as e:
             raise AuthError(f"認証パス取得中に予期せぬエラー: {e}") from e
 
@@ -177,20 +165,35 @@ class YoutubeUploader:
 
         logger.info("YouTube APIへの接続が完了しました。")
 
-    def upload_video(self, config: YoutubeConfig) -> dict:
+    def upload_video(
+        self,
+        config: YoutubeConfig,
+        progress_callback: Callable[[float], None] | None = None,
+        chunksize: int = -1,
+    ) -> dict:
         """動画をYouTubeにアップロードする
 
         Args:
             config (YoutubeConfig): アップロード設定情報
+            progress_callback (Callable[[float], None] | None, optional):
+                アップロード進捗を通知するコールバック関数
+                引数には進捗率（0.0 から 1.0）が渡される
+            chunksize (int, optional):
+                アップロードのチャンクサイズ（バイト単位）
+                デフォルトは-1（全体を一度にアップロード、最速だが進捗表示なし）
+                進捗を表示したい場合は10 * 1024 * 1024などの値を指定
 
         Returns:
             dict : APIのレスポンス辞書
+
+        Raises:
+            UploadError: アップロード中にAPIエラーが発生した場合
+            AuthError: APIに接続されていない場合
         """
-        # ファイル存在チェック
-        # （Pydanticバリデーションを通過しても、実行時にファイルが消える可能性を考慮）
-        if not config.video_path.exists():
-            raise FileNotFoundError(
-                f"指定された動画ファイルが存在しません: {config.video_path}"
+        if self._youtube_service is None:
+            raise AuthError(
+                "YouTube APIに接続されていません。"
+                "connect() メソッドを呼び出してください。"
             )
 
         logger.info(f"動画 '{config.title}' のアップロードを開始します...")
@@ -211,13 +214,14 @@ class YoutubeUploader:
 
         # 予約投稿日時を設定 (datetimeオブジェクトをISO 8601形式に変換)
         if config.publish_at:
-            # configバリデーターによって、publish_atがある場合は
-            # privacyStatusがprivateであることが保証されている
             body["status"]["publishAt"] = config.publish_at.isoformat()
 
-        # 動画ファイルのアップロード準備
-        media = MediaFileUpload(
-            str(config.video_path), chunksize=-1, resumable=True, mimetype="video/*"
+        # MediaIoBaseUploadは、io.BytesIOを受け取る
+        media = MediaIoBaseUpload(
+            io.BytesIO(config.video_bytes),
+            chunksize=chunksize,
+            resumable=True,
+            mimetype=config.video_mimetype,
         )
 
         try:
@@ -229,14 +233,24 @@ class YoutubeUploader:
             # チャンクアップロードの実行
             response = None
             while response is None:
-                # next_chunk()を呼び出し、進捗状況とレスポンスを取得
                 status, response = request.next_chunk()
                 if status:
-                    logger.info(f"アップロード進捗: {int(status.progress() * 100)}%")
+                    progress = status.progress()  # 進捗率を取得 (0.0 から 1.0)
+
+                    # --- 進捗コールバックを呼び出す ---
+                    if progress_callback:
+                        progress_callback(progress)
+                    else:
+                        # コールバックが指定されていない場合のみログに出力
+                        logger.info(f"アップロード進捗: {int(progress * 100)}%")
 
             # 結果の検証と戻り値
             if "id" in response:
                 video_id = response["id"]
+
+                # サムネイルのアップロード処理
+                self._upload_thumbnail(video_id, config)
+
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
                 logger.info(f"動画のアップロードが完了しました: {video_url}")
                 return response
@@ -255,3 +269,49 @@ class YoutubeUploader:
             raise UploadError(
                 f"動画のアップロード中に予期せぬエラーが発生しました: {e}"
             ) from e
+
+    def _upload_thumbnail(self, video_id: str, config: YoutubeConfig) -> None:
+        """指定された動画IDにサムネイル画像をアップロードする
+
+        Args:
+            video_id (str): 対象となるYouTube動画のID
+            config (YoutubeConfig): アップロード設定情報
+        """
+        if config.thumbnail_bytes is None or config.thumbnail_mimetype is None:
+            return  # データがなければスキップ
+
+        logger.info("サムネイルのアップロードを開始します...")
+
+        media = MediaIoBaseUpload(
+            io.BytesIO(config.thumbnail_bytes),
+            chunksize=-1,
+            resumable=True,
+            mimetype=config.thumbnail_mimetype,
+        )
+
+        try:
+            self._youtube_service.thumbnails().set(
+                videoId=video_id, media_body=media
+            ).execute()
+
+            logger.info("サムネイルのアップロードが完了しました。")
+
+        except HttpError as e:
+            # --- 権限がない可能性の処理 ---
+            if e.resp.status == 403:  # 403 Forbidden は権限がない可能性が高い
+                logger.critical(
+                    "❌ サムネイルアップロード権限エラー: "
+                    "YouTubeアカウントが電話番号で認証されていない可能性があります。"
+                )
+                logger.critical(f"詳細なAPIエラーメッセージ: {e.content.decode()}")
+            else:
+                # その他のAPIエラーはUploadErrorとして再発生させる
+                logger.error(
+                    f"サムネイルアップロード中に予期せぬAPIエラーが発生しました: {e}"
+                )
+                # サムネイルアップロード失敗は致命的ではないため、例外を再発生させない
+                pass
+        except Exception as e:
+            logger.error(f"サムネイルアップロード中に予期せぬエラーが発生しました: {e}")
+            # サムネイルアップロード失敗は致命的ではないため、例外を再発生させない
+            pass
