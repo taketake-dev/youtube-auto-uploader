@@ -1,6 +1,6 @@
 [project]
 name = "youtube-uploader"
-version = "5.0.0"
+version = "5.0.1"
 description = "YouTube アップロード用の個人用自動化パッケージ"
 authors = [
     {name = "taketake-dev",email = "177946216+taketake-dev@users.noreply.github.com"}

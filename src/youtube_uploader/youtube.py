@@ -126,11 +126,18 @@ class YoutubeUploader:
                 try:
                     credentials.refresh(Request())
                 except Exception as e:
-                    # 期限切れリフレッシュ失敗時にAuthErrorを発生
-                    raise AuthError(f"トークンのリフレッシュに失敗しました: {e}") from e
+                    # リフレッシュトークンが無効な場合は、token.jsonを削除して再認証
+                    logger.warning(
+                        f"トークンのリフレッシュに失敗しました: {e}\n"
+                        "古いtoken.jsonを削除して、再認証を試みます。"
+                    )
+                    if self._token_json_path.exists():
+                        self._token_json_path.unlink()
+                    # credentialsをNoneにして、次のelseブロックで新規認証フローを実行
+                    credentials = None
 
             # 初回またはトークンが無効な場合
-            else:
+            if not credentials or not credentials.valid:
                 logger.info("認証が必要です。ブラウザを開いてログインしてください。")
 
                 if not self._client_secrets_json_path.exists():
